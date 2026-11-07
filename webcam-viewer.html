@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stream Viewer</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #111827;
+      --panel-soft: #1f2937;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --primary: #60a5fa;
+      --primary-strong: #3b82f6;
+      --border: rgba(255,255,255,0.08);
+      --shadow: rgba(15, 23, 42, 0.5);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      min-height: 100vh;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at top, #1e293b 0%, var(--bg) 55%, #020617 100%);
+      color: var(--text);
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .app {
+      width: min(1100px, 100%);
+      background: rgba(17, 24, 39, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      box-shadow: 0 28px 70px var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(10px);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(17, 24, 39, 0.96);
+    }
+
+    .toolbar input {
+      flex: 1 1 520px;
+      min-width: 220px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: var(--panel-soft);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .toolbar input::placeholder {
+      color: var(--muted);
+    }
+
+    .toolbar button {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: var(--panel-soft);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.2s ease;
+    }
+
+    .toolbar button:hover {
+      border-color: rgba(96,165,250,0.6);
+      transform: translateY(-1px);
+    }
+
+    .toolbar .primary {
+      background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+      border-color: transparent;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .language-switch {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: var(--panel-soft);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .language-switch button {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 10px 12px;
+      font-weight: 600;
+    }
+
+    .language-switch button.active {
+      background: rgba(96,165,250,0.18);
+      color: #dbeafe;
+    }
+
+    .viewport-wrap {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 620px;
+      padding: 20px;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.8), rgba(2, 6, 23, 0.9));
+    }
+
+    .viewport {
+      position: relative;
+      width: min(1000px, 100%);
+      aspect-ratio: 16 / 9;
+      border-radius: 18px;
+      overflow: hidden;
+      background: #000;
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: inset 0 0 30px rgba(0,0,0,.35);
+    }
+
+    .preview-shell {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      transition: transform 0.2s ease;
+      transform-origin: center center;
+    }
+
+    .preview-shell > * {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+      object-fit: contain;
+      background: #000;
+    }
+
+    .preview-shell.video-mode video,
+    .preview-shell.image-mode img,
+    .preview-shell.iframe-mode iframe {
+      display: block;
+    }
+
+    video {
+      object-fit: cover;
+      background: #000;
+    }
+
+    img {
+      object-fit: contain;
+      background: #000;
+    }
+
+    iframe {
+      border: none;
+      background: #000;
+    }
+
+    .empty-state {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      text-align: center;
+      padding: 24px;
+      background: repeating-linear-gradient(
+        45deg,
+        rgba(15, 23, 42, 0.5),
+        rgba(15, 23, 42, 0.5) 16px,
+        rgba(15, 23, 42, 0.85) 16px,
+        rgba(15, 23, 42, 0.85) 32px
+      );
+      z-index: 2;
+    }
+
+    .empty-state.hidden {
+      display: none;
+    }
+
+    .status {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      z-index: 3;
+      background: rgba(17, 24, 39, 0.72);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 999px;
+      padding: 7px 12px;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+      font-size: 12px;
+    }
+
+    .status.live {
+      color: #93c5fd;
+      border-color: rgba(96,165,250,0.4);
+    }
+
+    @media (max-width: 760px) {
+      .toolbar {
+        gap: 10px;
+      }
+
+      .toolbar input, .toolbar button {
+        flex: 1 1 100%;
+      }
+
+      .language-switch {
+        width: 100%;
+      }
+
+      .viewport-wrap {
+        min-height: 420px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="toolbar">
+      <input id="streamUrl" type="url" value="http://192.168.1.4/stream" placeholder="输入视频流地址，例如：http://192.168.1.4/stream" />
+      <button id="loadBtn" class="primary">加载流</button>
+      <button id="stopBtn">停止</button>
+      <button id="rotateLeftBtn">左转90°</button>
+      <button id="rotateRightBtn">右转90°</button>
+      <button id="mirrorBtn">镜像</button>
+      <button id="flipBtn">上下翻转</button>
+      <div class="language-switch" aria-label="language switcher">
+        <button id="langZh" class="active" type="button">中文</button>
+        <button id="langEn" type="button">EN</button>
+      </div>
+    </div>
+
+    <div class="viewport-wrap">
+      <div class="viewport">
+        <div id="previewShell" class="preview-shell">
+          <video id="video" autoplay playsinline muted></video>
+          <img id="mjpegImage" alt="MJPEG stream" />
+          <iframe id="streamFrame" title="stream preview" loading="lazy"></iframe>
+        </div>
+
+        <div id="emptyState" class="empty-state">
+          <div>
+            <h3 id="emptyTitle" style="margin: 0 0 10px; font-weight: 600;">未加载视频流</h3>
+            <div id="emptyHint">在上方输入流地址，例如：http://192.168.1.4/stream</div>
+          </div>
+        </div>
+
+        <div id="status" class="status">未连接</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const i18n = {
+      zh: {
+        placeholder: '输入视频流地址，例如：http://192.168.1.4/stream',
+        load: '加载流',
+        stop: '停止',
+        rotateLeft: '左转90°',
+        rotateRight: '右转90°',
+        mirror: '镜像',
+        flip: '上下翻转',
+        emptyTitle: '未加载视频流',
+        emptyHint: '在上方输入流地址，例如：http://192.168.1.4/stream',
+        statusDisconnected: '未连接',
+        statusLoaded: '视频流已连接',
+        statusMjpeg: 'MJPEG 流已加载',
+        statusFallback: '已尝试网页嵌入',
+        statusEmbedded: '视频流无法直接播放，已尝试网页嵌入',
+        alertEmpty: '请输入视频流地址',
+      },
+      en: {
+        placeholder: 'Enter stream URL, e.g. http://192.168.1.4/stream',
+        load: 'Load Stream',
+        stop: 'Stop',
+        rotateLeft: 'Rotate Left',
+        rotateRight: 'Rotate Right',
+        mirror: 'Mirror',
+        flip: 'Flip Vertical',
+        emptyTitle: 'No stream loaded',
+        emptyHint: 'Enter the stream URL above, e.g. http://192.168.1.4/stream',
+        statusDisconnected: 'Disconnected',
+        statusLoaded: 'Stream connected',
+        statusMjpeg: 'MJPEG stream loaded',
+        statusFallback: 'Embedded preview attempted',
+        statusEmbedded: 'Direct playback failed, embedded preview used',
+        alertEmpty: 'Please enter the stream URL',
+      }
+    };
+
+    const langZh = document.getElementById('langZh');
+    const langEn = document.getElementById('langEn');
+    const streamUrl = document.getElementById('streamUrl');
+    const loadBtn = document.getElementById('loadBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const rotateLeftBtn = document.getElementById('rotateLeftBtn');
+    const rotateRightBtn = document.getElementById('rotateRightBtn');
+    const mirrorBtn = document.getElementById('mirrorBtn');
+    const flipBtn = document.getElementById('flipBtn');
+    const emptyTitle = document.getElementById('emptyTitle');
+    const emptyHint = document.getElementById('emptyHint');
+    const statusEl = document.getElementById('status');
+
+    let currentLang = 'zh';
+    let rotation = 0;
+    let mirrored = false;
+    let flipped = false;
+
+    function applyLanguage(lang) {
+      currentLang = lang;
+      const t = i18n[lang];
+
+      streamUrl.placeholder = t.placeholder;
+      loadBtn.textContent = t.load;
+      stopBtn.textContent = t.stop;
+      rotateLeftBtn.textContent = t.rotateLeft;
+      rotateRightBtn.textContent = t.rotateRight;
+      mirrorBtn.textContent = t.mirror;
+      flipBtn.textContent = t.flip;
+      emptyTitle.textContent = t.emptyTitle;
+      emptyHint.textContent = t.emptyHint;
+      statusEl.textContent = statusEl.textContent === '未连接' || statusEl.textContent === 'Disconnected' ? t.statusDisconnected : statusEl.textContent;
+
+      langZh.classList.toggle('active', lang === 'zh');
+      langEn.classList.toggle('active', lang === 'en');
+      document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    }
+
+    function updateTransform() {
+      const scaleX = mirrored ? -1 : 1;
+      const scaleY = flipped ? -1 : 1;
+      document.getElementById('previewShell').style.transform = `rotate(${rotation}deg) scale(${scaleX}, ${scaleY})`;
+    }
+
+    function setStatus(text, live = false) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle('live', live);
+    }
+
+    function setMode(mode) {
+      const previewShell = document.getElementById('previewShell');
+      previewShell.classList.remove('video-mode', 'image-mode', 'iframe-mode');
+      previewShell.classList.add(mode);
+    }
+
+    function stopStream() {
+      try { document.getElementById('video').pause(); document.getElementById('video').src = ''; document.getElementById('video').removeAttribute('src'); document.getElementById('video').load(); } catch (e) {}
+      try { document.getElementById('mjpegImage').src = ''; } catch (e) {}
+      try { document.getElementById('streamFrame').src = 'about:blank'; } catch (e) {}
+      setMode('video-mode');
+      document.getElementById('emptyState').classList.remove('hidden');
+      setStatus(i18n[currentLang].statusDisconnected);
+    }
+
+    function isLikelyMjpeg(url) {
+      const lower = url.toLowerCase();
+      return lower.includes('mjpg') || lower.includes('mjpeg') || lower.includes('jpeg') || lower.includes('jpg') || lower.includes('snapshot') || lower.includes('stream');
+    }
+
+    function loadStream() {
+      const url = streamUrl.value.trim();
+      if (!url) {
+        alert(i18n[currentLang].alertEmpty);
+        return;
+      }
+
+      document.getElementById('emptyState').classList.add('hidden');
+
+      try {
+        const rawUrl = url.startsWith('http://') || url.startsWith('https://') ? url : 'http://' + url;
+
+        if (isLikelyMjpeg(rawUrl)) {
+          setMode('image-mode');
+          document.getElementById('mjpegImage').src = rawUrl + (rawUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+          setStatus(i18n[currentLang].statusMjpeg, true);
+          return;
+        }
+
+        setMode('video-mode');
+        const video = document.getElementById('video');
+        video.src = rawUrl;
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.load();
+
+        video.onloadeddata = () => {
+          setStatus(i18n[currentLang].statusLoaded, true);
+        };
+
+        video.onerror = () => {
+          setMode('iframe-mode');
+          document.getElementById('streamFrame').src = rawUrl;
+          setStatus(i18n[currentLang].statusEmbedded, true);
+        };
+      } catch (error) {
+        console.warn('Load stream failed:', error);
+        setMode('iframe-mode');
+        document.getElementById('streamFrame').src = streamUrl.value.trim();
+        setStatus(i18n[currentLang].statusFallback, true);
+      }
+    }
+
+    langZh.addEventListener('click', () => applyLanguage('zh'));
+    langEn.addEventListener('click', () => applyLanguage('en'));
+    loadBtn.addEventListener('click', loadStream);
+    stopBtn.addEventListener('click', stopStream);
+
+    document.getElementById('rotateLeftBtn').addEventListener('click', () => {
+      rotation = (rotation - 90) % 360;
+      updateTransform();
+    });
+
+    document.getElementById('rotateRightBtn').addEventListener('click', () => {
+      rotation = (rotation + 90) % 360;
+      updateTransform();
+    });
+
+    document.getElementById('mirrorBtn').addEventListener('click', () => {
+      mirrored = !mirrored;
+      updateTransform();
+    });
+
+    document.getElementById('flipBtn').addEventListener('click', () => {
+      flipped = !flipped;
+      updateTransform();
+    });
+
+    streamUrl.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        loadStream();
+      }
+    });
+
+    updateTransform();
+    applyLanguage('zh');
+    stopStream();
+  </script>
+</body>
+</html>
